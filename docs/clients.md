@@ -8,7 +8,7 @@ between `<!-- memini-ai:start -->` and `<!-- memini-ai:end -->` markers.
 | Client | Config written | Skill location | Instructions file |
 |---|---|---|---|
 | `claude-code` | `.mcp.json` (project) or `~/.claude.json` (user) | `~/.claude/skills/init-memini/` | `CLAUDE.md` |
-| `opencode` | `.opencode/opencode.json` or `~/.config/opencode/opencode.json` | `.opencode/skills/init-memini/` | `AGENTS.md` |
+| `opencode` | `.opencode/opencode.json` or `~/.config/opencode/opencode.json` | `.opencode/skills/init-memini/` (project) or `~/.config/opencode/skills/init-memini/` (user) | `AGENTS.md` |
 | `kimi-code` | `.kimi-code/mcp.json` | not installed | `AGENTS.md` |
 | `generic` | prints a `mcpServers` snippet | not installed | `AGENTS.md` |
 
