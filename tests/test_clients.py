@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from memini_ai.clients import (
     PROTOCOL_BLOCK,
     ensure_protocol,
@@ -24,6 +26,37 @@ def test_merge_json_creates_missing_file(tmp_path):
     p = tmp_path / "sub" / "c.json"
     assert merge_json(p, ["mcp", "memini-ai"], {"a": 1}) is None
     assert json.loads(p.read_text()) == {"mcp": {"memini-ai": {"a": 1}}}
+
+
+def test_merge_json_invalid_json_is_readable_error(tmp_path):
+    p = tmp_path / "c.json"
+    p.write_text("{not json")
+    with pytest.raises(ValueError, match="not valid JSON"):
+        merge_json(p, ["mcpServers", "memini-ai"], {"a": 1})
+    assert p.read_text() == "{not json"
+    assert not list(tmp_path.glob("c.json.bak-*"))
+
+
+def test_merge_json_non_object_key_leaves_no_backup(tmp_path):
+    p = tmp_path / "c.json"
+    p.write_text(json.dumps({"mcpServers": "oops"}))
+    with pytest.raises(ValueError, match="not an object"):
+        merge_json(p, ["mcpServers", "memini-ai"], {"a": 1})
+    assert not list(tmp_path.glob("c.json.bak-*"))
+
+
+def test_run_init_reports_bad_config_without_traceback(tmp_path, capsys, monkeypatch):
+    import argparse
+
+    from memini_ai.clients import run_init
+
+    cwd = tmp_path / "repo"
+    cwd.mkdir()
+    (cwd / ".mcp.json").write_text("{broken")
+    monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path / "home")
+    args = argparse.Namespace(client="claude-code", scope="project", project="repo", command=None, cwd=cwd)
+    assert run_init(args) == 1
+    assert "not valid JSON" in capsys.readouterr().err
 
 
 def test_ensure_protocol_is_idempotent(tmp_path):

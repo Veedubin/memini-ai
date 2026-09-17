@@ -6,6 +6,7 @@ import argparse
 import json
 import shlex
 import shutil
+import sys
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from importlib import resources
@@ -39,16 +40,22 @@ class InitReport:
 def merge_json(path: Path, key_path: list[str], value: dict[str, Any]) -> Path | None:
     """Set data[key_path...] = value, keeping every other key. Returns the backup path if one was made."""
     data: dict[str, Any] = {}
-    backup: Path | None = None
-    if path.exists():
-        data = json.loads(path.read_text(encoding="utf-8") or "{}")
-        backup = path.with_name(f"{path.name}.bak-{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}")
-        shutil.copy2(path, backup)
+    existed = path.exists()
+    if existed:
+        raw = path.read_text(encoding="utf-8")
+        try:
+            data = json.loads(raw or "{}")
+        except json.JSONDecodeError as e:
+            raise ValueError(f"{path}: not valid JSON ({e}); fix or remove it and re-run") from e
     node = data
     for key in key_path[:-1]:
         node = node.setdefault(key, {})
         if not isinstance(node, dict):
             raise ValueError(f"{path}: {key!r} is not an object")
+    backup: Path | None = None
+    if existed:
+        backup = path.with_name(f"{path.name}.bak-{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}")
+        shutil.copy2(path, backup)
     node[key_path[-1]] = value
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
@@ -131,7 +138,11 @@ def init_client(
 
 
 def run_init(args: argparse.Namespace) -> int:
-    r = init_client(args.client, args.scope, args.project, args.command, args.cwd.resolve(), Path.home())
+    try:
+        r = init_client(args.client, args.scope, args.project, args.command, args.cwd.resolve(), Path.home())
+    except ValueError as e:
+        print(str(e), file=sys.stderr)
+        return 1
     if r.config_path:
         print(f"wrote {r.config_path}" + (f" (backup {r.backup_path})" if r.backup_path else ""))
     if r.skill_path:
