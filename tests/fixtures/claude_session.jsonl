@@ -1,0 +1,8 @@
+{"type":"summary","summary":"ignored"}
+{"type":"user","sessionId":"s1","timestamp":"2026-09-16T01:28:54.888Z","message":{"role":"user","content":"Why does the scan model use delta pairs?"}}
+{"type":"assistant","sessionId":"s1","timestamp":"2026-09-16T01:28:57.270Z","message":{"role":"assistant","content":[{"type":"thinking","thinking":"secret reasoning"}]}}
+{"type":"assistant","sessionId":"s1","timestamp":"2026-09-16T01:28:58.723Z","message":{"role":"assistant","content":[{"type":"tool_use","name":"Read","input":{"file_path":"x"}}]}}
+{"type":"user","sessionId":"s1","timestamp":"2026-09-16T01:28:59.112Z","message":{"role":"user","content":[{"type":"tool_result","content":"file contents here"}]}}
+{"type":"assistant","sessionId":"s1","timestamp":"2026-09-16T01:29:05.000Z","message":{"role":"assistant","content":[{"type":"text","text":"Because full and delta scans were deployed as pairs before T-SCANDEP-001 unified them."}]}}
+{"type":"user","sessionId":"s1","timestamp":"2026-09-16T01:30:00.000Z","message":{"role":"user","content":[{"type":"text","text":"Got it. Make it one model."}]}}
+{"type":"assistant","sessionId":"s1","timestamp":"2026-09-16T01:30:05.000Z","message":{"role":"assistant","content":[{"type":"text","text":"Done: unified scan model in scan.py, tests green."}]}}
