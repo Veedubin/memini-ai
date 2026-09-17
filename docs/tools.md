@@ -8,7 +8,8 @@ Every tool returns a JSON object. Failures are `{"error": "..."}` and nothing el
 
 Call it first in every session. Returns recent decisions, latest handoffs, a count of open thought
 chains, active projects, a rendered `text` block trimmed to `budget` tokens, and a `status` object
-with `db`, `model`, and `memories`. It never writes.
+with `db`, `model`, and `memories`. If the embedding model failed to load, `status` also carries
+`model_error` with the reason; it is absent while the model is healthy. It never writes.
 
 `project` is not a default; omitting it is a deliberate cross-project view across every project in
 the store, not the server's `MEMINI_PROJECT`. Passing `project` scopes decisions, handoffs, the open
@@ -34,7 +35,10 @@ Only results that came back from a search increment `retrieval_count`; reading a
 `kind` is one of `note`, `decision`, `handoff`, `fact`, `thought`. `supersedes` takes the id of the
 memory this one replaces. Duplicate text in the same project returns the existing id with
 `duplicate: true`; if `supersedes` is also given, the supersede is still applied to the existing row
-and the response carries `superseded_id`. Text is limited to 32 KB.
+and the response carries `superseded_id`. The duplicate response reports the stored row's `kind`
+and `project`, which may differ from the ones you passed. Text is limited to 32 KB. If the
+embedding model is unavailable the memory is still stored, searchable by full text only, and the
+response carries `degraded: "text-only"`.
 
 ### Thought chains
 

@@ -277,12 +277,19 @@ class Store:
         return out
 
     async def status(self) -> dict[str, Any]:
+        out: dict[str, Any]
         try:
             row = await self._db.fetchrow("SELECT count(*) AS n FROM memories")
             n = int(row["n"]) if row else 0
-            return {"db": "ok", "model": self._embed.name, "memories": n}
+            out = {"db": "ok", "model": self._embed.name, "memories": n}
         except Exception as e:  # DatabaseError or asyncpg errors
-            return {"db": "error", "model": self._embed.name, "memories": 0, "error": str(e)}
+            out = {"db": "error", "model": self._embed.name, "memories": 0, "error": str(e)}
+        # A model that failed to load is reported here too, so `orient` shows why recall is
+        # running text-only. Absent when the model is healthy.
+        model_error = getattr(self._embed, "last_error", None)
+        if model_error:
+            out["model_error"] = str(model_error)
+        return out
 
     async def orient(self, project: str | None = None, budget: int = 300) -> dict[str, Any]:
         if budget < 20 or budget > 4000:

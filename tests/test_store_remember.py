@@ -1,7 +1,7 @@
 import pytest
 
 from memini_ai.config import Settings
-from memini_ai.embed import HashEmbedder
+from memini_ai.embed import EmbedError, HashEmbedder
 from memini_ai.store import ChainStep, Store, StoreError, content_hash
 
 
@@ -86,3 +86,46 @@ async def test_rejects_bad_kind_empty_text_and_oversize(store):
 
 def test_content_hash_normalizes_whitespace():
     assert content_hash("a  b\n c") == content_hash("a b c")
+
+
+class _BrokenEmbedder:
+    """Stands in for a model that will not load."""
+
+    name = "BAAI/bge-m3"
+    dim = 1024
+    last_error = "cannot load BAAI/bge-m3: no such file"
+
+    async def embed(self, texts):
+        raise EmbedError(self.last_error)
+
+
+async def test_remember_without_a_model_stores_text_only_and_says_so(db):
+    store = Store(db, _BrokenEmbedder(), Settings(model="BAAI/bge-m3", project="proj"))
+    r = await store.remember("stored without a vector")
+    assert r["degraded"] == "text-only" and r["duplicate"] is False
+    row = await db.fetchrow("SELECT embedding, embedding_model FROM memories WHERE id=$1", r["id"])
+    assert row["embedding"] is None and row["embedding_model"] is None
+
+
+async def test_status_surfaces_model_error_only_when_set(db, store):
+    healthy = await store.status()
+    assert healthy["db"] == "ok" and "model_error" not in healthy
+    broken = await Store(db, _BrokenEmbedder(), Settings(model="BAAI/bge-m3")).status()
+    assert broken["db"] == "ok"
+    assert broken["model_error"] == "cannot load BAAI/bge-m3: no such file"
+
+
+async def test_duplicate_reports_the_stored_rows_kind_and_project(store):
+    a = await store.remember("one line of truth", kind="decision", project="x")
+    b = await store.remember("one line of truth", kind="note", project="x")
+    assert b["id"] == a["id"] and b["duplicate"] is True
+    assert b["kind"] == "decision" and b["project"] == "x"
+
+
+async def test_supersede_cycle_is_rejected(store, db):
+    a = await store.remember("old fact")
+    b = await store.remember("new fact", supersedes=a["id"])
+    with pytest.raises(StoreError, match="cycle"):
+        await store.remember("old fact", supersedes=b["id"])
+    row = await db.fetchrow("SELECT superseded_by FROM memories WHERE id=$1", b["id"])
+    assert row["superseded_by"] is None
