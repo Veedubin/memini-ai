@@ -268,6 +268,48 @@ class Store:
                 )
         return out
 
+    async def status(self) -> dict[str, Any]:
+        try:
+            row = await self._db.fetchrow("SELECT count(*) AS n FROM memories")
+            n = int(row["n"]) if row else 0
+            return {"db": "ok", "model": self._embed.name, "memories": n}
+        except Exception as e:  # DatabaseError or asyncpg errors
+            return {"db": "error", "model": self._embed.name, "memories": 0, "error": str(e)}
+
+    async def orient(self, project: str | None = None, budget: int = 300) -> dict[str, Any]:
+        if budget < 20 or budget > 4000:
+            raise StoreError("budget must be between 20 and 4000 tokens")
+        status = await self.status()
+        if status["db"] != "ok":
+            return {"status": status, "decisions": [], "handoffs": [], "open_chains": 0,
+                    "projects": [], "text": f"memini-ai unavailable: {status.get('error')}"}
+        pwhere, pparams = ("", []) if project is None else (" AND project = $1", [project])
+        decisions = await self._db.fetch(
+            "SELECT id, text, project, created_at FROM memories WHERE kind='decision' AND superseded_by IS NULL"
+            + pwhere + " ORDER BY created_at DESC LIMIT 5", *pparams)
+        handoffs = await self._db.fetch(
+            "SELECT id, text, project, created_at FROM memories WHERE kind='handoff' AND superseded_by IS NULL"
+            + pwhere + " ORDER BY created_at DESC LIMIT 3", *pparams)
+        chains = await self._db.fetchrow(
+            "SELECT count(*) AS n FROM chains WHERE status='open'" + pwhere, *pparams)
+        projects = await self._db.fetch(
+            "SELECT project, max(created_at) AS last FROM memories WHERE project IS NOT NULL"
+            + pwhere + " GROUP BY project ORDER BY last DESC LIMIT 10", *pparams)
+
+        def item(r: Any) -> dict[str, Any]:
+            return {"id": str(r["id"]), "text": r["text"], "project": r["project"],
+                    "created_at": r["created_at"].isoformat()}
+
+        out: dict[str, Any] = {
+            "status": status,
+            "decisions": [item(r) for r in decisions],
+            "handoffs": [item(r) for r in handoffs],
+            "open_chains": int(chains["n"]) if chains else 0,
+            "projects": [{"project": r["project"], "last_note_at": r["last"].isoformat()} for r in projects],
+        }
+        out["text"] = _render_orient(out, budget)
+        return out
+
     async def _resolve_chain(self, chain: ChainStep, project: str | None) -> uuid.UUID:
         if chain.chain_id is None:
             row = await self._db.fetchrow(
@@ -311,3 +353,24 @@ class Store:
 
 def _json(obj: dict[str, Any]) -> str:
     return json.dumps(obj, default=str)
+
+
+def _render_orient(o: dict[str, Any], budget: int) -> str:
+    """Render a compact block and trim to roughly `budget` tokens (4 chars per token)."""
+    st = o["status"]
+    lines = [f"memini-ai: {st['memories']} memories, model {st['model']}, {o['open_chains']} open chains."]
+    if st["memories"] == 0:
+        lines.append("No memories yet. Call remember() after decisions and handoffs.")
+    if o["projects"]:
+        lines.append("Projects: " + ", ".join(p["project"] for p in o["projects"]))
+    if o["decisions"]:
+        lines.append("Recent decisions:")
+        lines += [f"- {d['text']}" for d in o["decisions"]]
+    if o["handoffs"]:
+        lines.append("Latest handoffs:")
+        lines += [f"- {h['text']}" for h in o["handoffs"]]
+    text = "\n".join(lines)
+    limit = budget * 4
+    if len(text) > limit:
+        text = text[: max(0, limit - 3)].rstrip() + "..."
+    return text
