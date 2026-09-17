@@ -2,7 +2,7 @@ import pytest
 
 from memini_ai.config import Settings
 from memini_ai.embed import HashEmbedder
-from memini_ai.store import Store, StoreError, content_hash
+from memini_ai.store import ChainStep, Store, StoreError, content_hash
 
 
 @pytest.fixture
@@ -42,6 +42,35 @@ async def test_supersedes_marks_old_row(store, db):
 async def test_supersedes_unknown_id_errors(store):
     with pytest.raises(StoreError, match="supersedes"):
         await store.remember("x", supersedes="00000000-0000-0000-0000-000000000000")
+
+
+async def test_duplicate_with_supersedes_still_marks_old_row(store, db):
+    old = await store.remember("port is 5434", kind="fact")
+    new = await store.remember("port is 5555", kind="fact")
+    again = await store.remember("port is 5555", kind="fact", supersedes=old["id"])
+    assert again["duplicate"] is True and again["id"] == new["id"]
+    assert again["superseded_id"] == old["id"]
+    row = await db.fetchrow("SELECT superseded_by FROM memories WHERE id=$1", old["id"])
+    assert str(row["superseded_by"]) == new["id"]
+
+
+async def test_supersedes_self_is_error(store):
+    a = await store.remember("self ref")
+    with pytest.raises(StoreError, match="same memory"):
+        await store.remember("self ref", supersedes=a["id"])
+
+
+async def test_chain_cannot_cross_projects(store):
+    t1 = await store.remember(
+        "a", kind="thought", project="x", chain=ChainStep(number=1, total=2, next_needed=True)
+    )
+    with pytest.raises(StoreError, match="belongs to project"):
+        await store.remember(
+            "b",
+            kind="thought",
+            project="y",
+            chain=ChainStep(chain_id=t1["chain_id"], number=2, total=2, next_needed=False),
+        )
 
 
 async def test_rejects_bad_kind_empty_text_and_oversize(store):

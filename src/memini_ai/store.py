@@ -78,18 +78,21 @@ class Store:
 
         project = project or self._settings.project
         h = content_hash(text)
-        existing = await self._db.fetchrow(
-            "SELECT id FROM memories WHERE coalesce(project,'') = $1 AND content_hash = $2",
-            project or "", h,
-        )
-        if existing is not None and chain is None:
-            return {"id": str(existing["id"]), "kind": kind, "project": project, "duplicate": True}
 
         superseded: uuid.UUID | None = None
         if supersedes is not None:
             superseded = _uuid(supersedes, "supersedes")
             if await self._db.fetchrow("SELECT 1 FROM memories WHERE id=$1", superseded) is None:
                 raise StoreError(f"supersedes id not found: {supersedes}")
+
+        existing = None
+        if chain is None:
+            existing = await self._db.fetchrow(
+                "SELECT id FROM memories WHERE coalesce(project,'') = $1 AND content_hash = $2",
+                project or "", h,
+            )
+        if existing is not None:
+            return await self._duplicate_result(existing["id"], kind, project, superseded)
 
         chain_id = await self._resolve_chain(chain, project) if chain is not None else None
 
@@ -124,12 +127,13 @@ class Store:
                 project or "", h,
             )
             assert dup is not None
-            return {"id": str(dup["id"]), "kind": kind, "project": project, "duplicate": True}
+            return await self._duplicate_result(dup["id"], kind, project, superseded)
         assert row is not None
-        new_id = str(row["id"])
+        new_id_uuid: uuid.UUID = row["id"]
+        new_id = str(new_id_uuid)
 
         if superseded is not None:
-            await self._db.execute("UPDATE memories SET superseded_by=$1 WHERE id=$2", row["id"], superseded)
+            await self._apply_supersede(new_id_uuid, superseded)
 
         out: dict[str, Any] = {"id": new_id, "kind": kind, "project": project, "duplicate": False}
         if superseded is not None:
@@ -150,10 +154,37 @@ class Store:
             assert row is not None
             return uuid.UUID(str(row["id"]))
         cid = _uuid(chain.chain_id, "chain_id")
-        if await self._db.fetchrow("SELECT 1 FROM chains WHERE id=$1", cid) is None:
+        found = await self._db.fetchrow("SELECT project FROM chains WHERE id=$1", cid)
+        if found is None:
             raise StoreError(f"chain_id not found: {chain.chain_id}")
+        chain_project = found["project"]
+        if chain_project != project:
+            raise StoreError(f"chain_id belongs to project {chain_project!r}, not {project!r}")
         await self._db.execute("UPDATE chains SET updated_at=now(), status='open' WHERE id=$1", cid)
         return cid
+
+    async def _apply_supersede(self, new_id: uuid.UUID, superseded: uuid.UUID) -> None:
+        await self._db.execute("UPDATE memories SET superseded_by=$1 WHERE id=$2", new_id, superseded)
+
+    async def _duplicate_result(
+        self,
+        existing_id: uuid.UUID,
+        kind: str,
+        project: str | None,
+        superseded: uuid.UUID | None,
+    ) -> dict[str, Any]:
+        result: dict[str, Any] = {
+            "id": str(existing_id),
+            "kind": kind,
+            "project": project,
+            "duplicate": True,
+        }
+        if superseded is not None:
+            if superseded == existing_id:
+                raise StoreError("supersedes cannot point at the same memory")
+            await self._apply_supersede(existing_id, superseded)
+            result["superseded_id"] = str(superseded)
+        return result
 
 
 def _json(obj: dict[str, Any]) -> str:
