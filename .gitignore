@@ -10,3 +10,4 @@ site/
 .env
 *.jsonl
 *.dump
+.superpowers/
