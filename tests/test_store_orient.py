@@ -39,3 +39,23 @@ async def test_orient_project_filter(store):
     r = await store.orient(project="a")
     assert [d["text"] for d in r["decisions"]] == ["d1"]
     assert [p["project"] for p in r["projects"]] == ["a"]
+
+
+async def test_orient_text_trims_on_line_boundaries(store):
+    for i in range(5):
+        await store.remember(f"decision {i}: " + "x" * 120, kind="decision")
+    r = await store.orient(budget=60)
+    lines = r["text"].split("\n")
+    assert len(r["text"]) // 4 <= 60
+    assert lines[-1] == "..."
+    assert all(not ln.endswith("...") or ln == "..." for ln in lines)
+    assert lines[0].startswith("memini-ai:")
+
+
+async def test_orient_cross_project_text_names_projects(store):
+    await store.remember("chose sqlite", kind="decision", project="a")
+    await store.remember("chose postgres", kind="decision", project="b")
+    r = await store.orient()
+    assert "- [a] chose sqlite" in r["text"] and "- [b] chose postgres" in r["text"]
+    scoped = await store.orient(project="a")
+    assert "- chose sqlite" in scoped["text"] and "[a]" not in scoped["text"]

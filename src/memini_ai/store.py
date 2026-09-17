@@ -307,7 +307,7 @@ class Store:
             "open_chains": int(chains["n"]) if chains else 0,
             "projects": [{"project": r["project"], "last_note_at": r["last"].isoformat()} for r in projects],
         }
-        out["text"] = _render_orient(out, budget)
+        out["text"] = _render_orient(out, budget, scoped=project is not None)
         return out
 
     async def _resolve_chain(self, chain: ChainStep, project: str | None) -> uuid.UUID:
@@ -355,8 +355,18 @@ def _json(obj: dict[str, Any]) -> str:
     return json.dumps(obj, default=str)
 
 
-def _render_orient(o: dict[str, Any], budget: int) -> str:
-    """Render a compact block and trim to roughly `budget` tokens (4 chars per token)."""
+def _bullet(row: dict[str, Any], scoped: bool) -> str:
+    if scoped:
+        return f"- {row['text']}"
+    return f"- [{row['project'] or '-'}] {row['text']}"
+
+
+def _render_orient(o: dict[str, Any], budget: int, scoped: bool = True) -> str:
+    """Render a compact block and trim to roughly `budget` tokens (4 chars per token).
+
+    When `scoped` is False (a cross-project view), each decision/handoff line is
+    prefixed with its project so items from different projects aren't ambiguous.
+    """
     st = o["status"]
     lines = [f"memini-ai: {st['memories']} memories, model {st['model']}, {o['open_chains']} open chains."]
     if st["memories"] == 0:
@@ -365,12 +375,27 @@ def _render_orient(o: dict[str, Any], budget: int) -> str:
         lines.append("Projects: " + ", ".join(p["project"] for p in o["projects"]))
     if o["decisions"]:
         lines.append("Recent decisions:")
-        lines += [f"- {d['text']}" for d in o["decisions"]]
+        lines += [_bullet(d, scoped) for d in o["decisions"]]
     if o["handoffs"]:
         lines.append("Latest handoffs:")
-        lines += [f"- {h['text']}" for h in o["handoffs"]]
-    text = "\n".join(lines)
+        lines += [_bullet(h, scoped) for h in o["handoffs"]]
+
     limit = budget * 4
-    if len(text) > limit:
-        text = text[: max(0, limit - 3)].rstrip() + "..."
-    return text
+    text = "\n".join(lines)
+    if len(text) <= limit:
+        return text
+
+    kept = list(lines)
+    while len(kept) > 1:
+        candidate = "\n".join([*kept, "..."])
+        if len(candidate) <= limit:
+            return candidate
+        kept.pop()
+
+    # Only the status line is left; keep it, adding "..." on its own line if it fits,
+    # otherwise hard-cut the line itself.
+    first = kept[0]
+    candidate = first + "\n..."
+    if len(candidate) <= limit:
+        return candidate
+    return first[: max(0, limit - 3)].rstrip() + "..."
