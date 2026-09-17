@@ -25,7 +25,7 @@ def test_parse_keeps_only_human_readable_turns():
 
 
 def test_chunk_turns_splits_at_message_boundaries_with_overlap():
-    turns = [Turn("user", "a" * 900, None), Turn("assistant", "b" * 900, None), Turn("user", "c" * 900, None)]
+    turns = [Turn("user", "a" * 600, None), Turn("assistant", "b" * 600, None), Turn("user", "c" * 600, None)]
     chunks = chunk_turns(turns, max_chars=1500)
     assert len(chunks) == 2
     assert chunks[0].startswith("user: aaa") and "assistant: bbb" in chunks[0]

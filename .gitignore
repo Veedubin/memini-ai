@@ -9,5 +9,6 @@ site/
 *.egg-info/
 .env
 *.jsonl
+!tests/fixtures/*.jsonl
 *.dump
 .superpowers/
