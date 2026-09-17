@@ -8,9 +8,12 @@ turns transcripts into searchable memories.
 Claude Code transcripts live under `~/.claude/projects/<slug>/<session>.jsonl`. The ingester keeps
 user prompts and assistant prose, drops thinking, tool calls, tool results and attachments, packs
 messages into chunks of about 1500 characters, and stores each as `kind=session` with the client,
-session id, and timestamp in `source`. The project label comes from the transcript directory name
-unless `--project` is given. Re-running is idempotent. A transcript file that can't be read or
-parsed is skipped with a warning, and ingestion continues with the rest.
+session id, transcript directory name (`project_slug`), and timestamp in `source`. Lines marked
+`isMeta` — the boilerplate Claude Code injects around local commands and hooks — are skipped, and
+only `<slug>/*.jsonl` is read: nested transcripts such as `subagents/*.jsonl` are not ingested. The
+project label comes from the transcript directory name unless `--project` is given. Re-running is
+idempotent. A transcript file that can't be read or parsed is skipped with a warning, and ingestion
+continues with the rest.
 
 Search them with `recall(query, kind="session")`. Nothing else returns session chunks by default,
 because `kind` filters are exact; a plain `recall` searches every kind.

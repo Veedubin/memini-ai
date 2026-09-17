@@ -69,7 +69,11 @@ def _text_of(content: Any) -> str:
 
 
 def parse_claude_transcript(path: Path) -> list[Turn]:
-    """Keep user prompts and assistant prose; drop thinking, tool calls, tool results, attachments."""
+    """Keep user prompts and assistant prose.
+
+    Dropped: thinking, tool calls, tool results, attachments, and `isMeta` lines — the
+    boilerplate Claude Code injects (command caveats, hook output) that no one ever wrote.
+    """
     turns: list[Turn] = []
     for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
         try:
@@ -77,6 +81,8 @@ def parse_claude_transcript(path: Path) -> list[Turn]:
         except json.JSONDecodeError:
             continue
         if not isinstance(obj, dict) or obj.get("type") not in ("user", "assistant"):
+            continue
+        if obj.get("isMeta"):
             continue
         text = _text_of((obj.get("message") or {}).get("content"))
         if not text:
@@ -134,7 +140,8 @@ async def ingest_claude_sessions(
                 r = await store.remember(
                     chunk, kind="session", project=proj, allow_session=True,
                     source={"client": "claude-code", "session_id": session_id, "chunk": i,
-                            "ts": turns[0].ts, "ingested_at": datetime.now(UTC).isoformat()},
+                            "project_slug": path.parent.name, "ts": turns[0].ts,
+                            "ingested_at": datetime.now(UTC).isoformat()},
                 )
                 counts["duplicates" if r["duplicate"] else "chunks"] += 1
         except (OSError, StoreError) as e:

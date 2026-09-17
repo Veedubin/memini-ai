@@ -21,6 +21,7 @@ def test_parse_keeps_only_human_readable_turns():
     assert [t.role for t in turns] == ["user", "assistant", "user", "assistant"]
     assert "secret reasoning" not in " ".join(t.text for t in turns)
     assert "file contents here" not in " ".join(t.text for t in turns)
+    assert "generated while running a local command" not in " ".join(t.text for t in turns)
     assert turns[0].ts == "2026-09-16T01:28:54.888Z"
 
 
@@ -60,6 +61,7 @@ async def test_ingest_is_idempotent_and_searchable(store, db, tmp_path):
     row = await db.fetchrow("SELECT source FROM memories WHERE kind='session' LIMIT 1")
     src = row["source"] if isinstance(row["source"], dict) else __import__("json").loads(row["source"])
     assert src["client"] == "claude-code" and src["session_id"] == "s1"
+    assert src["project_slug"] == "-home-jcharles-Projects-food-index"
 
 
 async def test_ingest_since_skips_old_files(store, tmp_path):
