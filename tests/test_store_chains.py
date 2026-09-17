@@ -39,11 +39,26 @@ async def test_revision_and_branch_are_recorded(store):
     assert r["chain"]["status"] == "open"
 
 
-async def test_repeated_thought_text_in_same_chain_is_allowed(store):
+async def test_repeated_thought_text_in_same_chain_returns_chain_and_closes_it(store, db):
     t1 = await store.remember("same", kind="thought", chain=ChainStep(number=1, total=2, next_needed=True))
     t2 = await store.remember("same", kind="thought",
                               chain=ChainStep(chain_id=t1["chain_id"], number=2, total=2, next_needed=False))
-    assert t2["duplicate"] is True  # unique index still collapses identical rows
+    assert t2["duplicate"] is True and t2["id"] == t1["id"]  # unique index collapses identical rows
+    assert t2["chain_id"] == t1["chain_id"]
+    row = await db.fetchrow("SELECT status FROM chains WHERE id=$1::uuid", t1["chain_id"])
+    assert row["status"] == "done"  # a duplicate final thought still closes the chain
+
+
+async def test_duplicate_first_thought_leaves_chains_unchanged(store, db):
+    """The chain row is created inside the insert transaction, so a duplicate leaves no orphan."""
+    await store.remember("already stored", kind="note")
+    before = (await db.fetchrow("SELECT count(*) AS n FROM chains"))["n"]
+    r = await store.remember("already stored", kind="thought",
+                             chain=ChainStep(number=1, total=2, next_needed=True))
+    assert r["duplicate"] is True and r["kind"] == "note"  # the stored row's kind, not the request's
+    assert "chain_id" not in r
+    after = (await db.fetchrow("SELECT count(*) AS n FROM chains"))["n"]
+    assert after == before
 
 
 async def test_chain_errors(store):

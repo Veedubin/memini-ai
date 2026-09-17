@@ -1,3 +1,5 @@
+import pytest
+
 from memini_ai.db import Database
 
 
@@ -41,3 +43,14 @@ async def test_connect_failure_raises_database_error():
         assert "connect" in str(e).lower() or "authentication" in str(e).lower()
     else:
         raise AssertionError("expected DatabaseError")
+
+
+async def test_transaction_rolls_back_on_error(db: Database):
+    with pytest.raises(RuntimeError):
+        async with db.transaction() as conn:
+            await db.execute(
+                "INSERT INTO memories (text, kind, content_hash) VALUES ('t','note','tx-1')", conn=conn
+            )
+            assert await db.fetchrow("SELECT 1 FROM memories WHERE content_hash='tx-1'", conn=conn)
+            raise RuntimeError("boom")
+    assert await db.fetchrow("SELECT 1 FROM memories WHERE content_hash='tx-1'") is None

@@ -21,6 +21,10 @@ from memini_ai.search import build_filters, parse_since, rrf
 log = structlog.get_logger(__name__)
 
 KINDS = ("note", "decision", "handoff", "fact", "thought", "session")
+_DUP_SQL = (
+    "SELECT id, kind, project, superseded_by FROM memories "
+    "WHERE coalesce(project,'') = $1 AND content_hash = $2"
+)
 _WS = re.compile(r"\s+")
 
 
@@ -207,65 +211,69 @@ class Store:
             if await self._db.fetchrow("SELECT 1 FROM memories WHERE id=$1", superseded) is None:
                 raise StoreError(f"supersedes id not found: {supersedes}")
 
-        existing = None
         if chain is None:
-            existing = await self._db.fetchrow(
-                "SELECT id FROM memories WHERE coalesce(project,'') = $1 AND content_hash = $2",
-                project or "", h,
-            )
-        if existing is not None:
-            return await self._duplicate_result(existing["id"], kind, project, superseded)
+            existing = await self._db.fetchrow(_DUP_SQL, project or "", h)
+            if existing is not None:
+                return await self._duplicate_result(existing, superseded)
 
-        chain_id = await self._resolve_chain(chain, project) if chain is not None else None
-
+        # Embed before opening the transaction: it is the slow part and holding a pooled
+        # connection across a model call would pin it for seconds.
         try:
-            vectors = await self._embed.embed([text])
-            vector: list[float] | None = vectors[0]
+            vector: list[float] | None = (await self._embed.embed([text]))[0]
             model: str | None = self._embed.name
         except EmbedError as e:
             log.warning("embed_failed_storing_without_vector", error=str(e))
             vector, model = None, None
 
+        chain_id: uuid.UUID | None = None
         try:
-            row = await self._db.fetchrow(
-                """
-                INSERT INTO memories (text, kind, project, tags, content_hash, embedding, embedding_model,
-                    chain_id, thought_number, thought_total, next_needed, revises, branch_from, source)
-                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb)
-                RETURNING id
-                """,
-                text, kind, project, tags or [], h, vector, model,
-                chain_id,
-                chain.number if chain else None,
-                chain.total if chain else None,
-                chain.next_needed if chain else None,
-                chain.revises if chain else None,
-                chain.branch_from if chain else None,
-                _json(source or {}),
-            )
+            # One transaction for the chain row, the insert, the supersede and the close, so a
+            # duplicate (or any failure) leaves no orphan chain and no half-applied supersede.
+            async with self._db.transaction() as conn:
+                if chain is not None:
+                    chain_id = await self._resolve_chain(chain, project, conn)
+                row = await self._db.fetchrow(
+                    """
+                    INSERT INTO memories (text, kind, project, tags, content_hash, embedding,
+                        embedding_model, chain_id, thought_number, thought_total, next_needed,
+                        revises, branch_from, source)
+                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb)
+                    RETURNING id
+                    """,
+                    text, kind, project, tags or [], h, vector, model,
+                    chain_id,
+                    chain.number if chain else None,
+                    chain.total if chain else None,
+                    chain.next_needed if chain else None,
+                    chain.revises if chain else None,
+                    chain.branch_from if chain else None,
+                    _json(source or {}),
+                    conn=conn,
+                )
+                assert row is not None
+                new_id_uuid: uuid.UUID = row["id"]
+                if superseded is not None:
+                    await self._apply_supersede(new_id_uuid, superseded, conn)
+                if chain_id is not None and chain is not None and not chain.next_needed:
+                    await self._db.execute(
+                        "UPDATE chains SET status='done', updated_at=now() WHERE id=$1",
+                        chain_id, conn=conn,
+                    )
         except asyncpg.exceptions.UniqueViolationError:
-            dup = await self._db.fetchrow(
-                "SELECT id FROM memories WHERE coalesce(project,'') = $1 AND content_hash = $2",
-                project or "", h,
-            )
+            # The transaction rolled back, so nothing above landed. Reconcile with the row
+            # that already holds this text.
+            dup = await self._db.fetchrow(_DUP_SQL, project or "", h)
             assert dup is not None
-            return await self._duplicate_result(dup["id"], kind, project, superseded)
-        assert row is not None
-        new_id_uuid: uuid.UUID = row["id"]
-        new_id = str(new_id_uuid)
+            return await self._duplicate_result(dup, superseded, chain)
 
-        if superseded is not None:
-            await self._apply_supersede(new_id_uuid, superseded)
-
-        out: dict[str, Any] = {"id": new_id, "kind": kind, "project": project, "duplicate": False}
+        out: dict[str, Any] = {"id": str(new_id_uuid), "kind": kind, "project": project,
+                               "duplicate": False}
+        if vector is None:
+            out["degraded"] = "text-only"
         if superseded is not None:
             out["superseded_id"] = str(superseded)
         if chain_id is not None:
             out["chain_id"] = str(chain_id)
-            if chain is not None and not chain.next_needed:
-                await self._db.execute(
-                    "UPDATE chains SET status='done', updated_at=now() WHERE id=$1", chain_id
-                )
         return out
 
     async def status(self) -> dict[str, Any]:
@@ -310,44 +318,65 @@ class Store:
         out["text"] = _render_orient(out, budget, scoped=project is not None)
         return out
 
-    async def _resolve_chain(self, chain: ChainStep, project: str | None) -> uuid.UUID:
+    async def _resolve_chain(
+        self, chain: ChainStep, project: str | None, conn: asyncpg.Connection
+    ) -> uuid.UUID:
         if chain.chain_id is None:
             row = await self._db.fetchrow(
-                "INSERT INTO chains (project) VALUES ($1) RETURNING id", project
+                "INSERT INTO chains (project) VALUES ($1) RETURNING id", project, conn=conn
             )
             assert row is not None
             return uuid.UUID(str(row["id"]))
         cid = _uuid(chain.chain_id, "chain_id")
-        found = await self._db.fetchrow("SELECT project FROM chains WHERE id=$1", cid)
+        found = await self._db.fetchrow("SELECT project FROM chains WHERE id=$1", cid, conn=conn)
         if found is None:
             raise StoreError(f"chain_id not found: {chain.chain_id}")
         chain_project = found["project"]
         if chain_project != project:
             raise StoreError(f"chain_id belongs to project {chain_project!r}, not {project!r}")
-        await self._db.execute("UPDATE chains SET updated_at=now(), status='open' WHERE id=$1", cid)
+        await self._db.execute(
+            "UPDATE chains SET updated_at=now(), status='open' WHERE id=$1", cid, conn=conn
+        )
         return cid
 
-    async def _apply_supersede(self, new_id: uuid.UUID, superseded: uuid.UUID) -> None:
-        await self._db.execute("UPDATE memories SET superseded_by=$1 WHERE id=$2", new_id, superseded)
+    async def _apply_supersede(
+        self, new_id: uuid.UUID, superseded: uuid.UUID, conn: asyncpg.Connection | None = None
+    ) -> None:
+        await self._db.execute(
+            "UPDATE memories SET superseded_by=$1 WHERE id=$2", new_id, superseded, conn=conn
+        )
 
     async def _duplicate_result(
         self,
-        existing_id: uuid.UUID,
-        kind: str,
-        project: str | None,
+        existing: asyncpg.Record,
         superseded: uuid.UUID | None,
+        chain: ChainStep | None = None,
     ) -> dict[str, Any]:
+        """Describe the row that already holds this text: its kind and project, not the request's."""
+        existing_id: uuid.UUID = existing["id"]
         result: dict[str, Any] = {
             "id": str(existing_id),
-            "kind": kind,
-            "project": project,
+            "kind": existing["kind"],
+            "project": existing["project"],
             "duplicate": True,
         }
         if superseded is not None:
             if superseded == existing_id:
                 raise StoreError("supersedes cannot point at the same memory")
+            if existing["superseded_by"] == superseded:
+                raise StoreError("supersedes would create a cycle")
             await self._apply_supersede(existing_id, superseded)
             result["superseded_id"] = str(superseded)
+        # A duplicate thought in a chain that already exists still belongs to that chain, and a
+        # duplicate final thought still closes it. A duplicate *first* thought has no chain: the
+        # transaction that would have created one rolled back.
+        if chain is not None and chain.chain_id is not None:
+            cid = _uuid(chain.chain_id, "chain_id")
+            result["chain_id"] = str(cid)
+            if not chain.next_needed:
+                await self._db.execute(
+                    "UPDATE chains SET status='done', updated_at=now() WHERE id=$1", cid
+                )
         return result
 
 
