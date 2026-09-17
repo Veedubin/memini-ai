@@ -30,6 +30,7 @@ async def test_tools_are_exactly_three_and_small(app):
     assert len(json.dumps(schema)) // 4 < 700
     remember = next(t for t in tools if t.name == "remember")
     assert "description" in remember.inputSchema["properties"]["kind"]
+    assert '"decision"' in json.dumps(remember.inputSchema["properties"]["kind"])
 
 
 async def test_round_trip(app):
@@ -44,8 +45,8 @@ async def test_round_trip(app):
 
 async def test_errors_have_only_error_key(app):
     async with Client(app) as c:
-        r = _data(await c.call_tool("remember", {"text": "x", "kind": "poem"}))
-        assert set(r) == {"error"} and "kind" in r["error"]
+        r = _data(await c.call_tool("remember", {"text": "   "}))
+        assert set(r) == {"error"} and "empty" in r["error"]
         r = _data(await c.call_tool("recall", {"query": ""}))
         assert set(r) == {"error"}
 

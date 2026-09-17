@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import sys
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 import structlog
 from fastmcp import FastMCP
@@ -17,6 +17,9 @@ from memini_ai.embed import make_embedder
 from memini_ai.store import ChainStep, Store, StoreError
 
 log = structlog.get_logger(__name__)
+
+Kind = Literal["note", "decision", "handoff", "fact", "thought"]
+RecallKind = Literal["note", "decision", "handoff", "fact", "thought", "session"]
 
 
 def configure_logging(level: str) -> None:
@@ -90,13 +93,14 @@ def create_app(settings: Settings | None = None) -> FastMCP:
     @app.tool
     async def remember(
         text: Annotated[str, Field(description="One paragraph: what and why. Include paths and commit ids.")],
-        kind: Annotated[str, Field(description="note | decision | handoff | fact | thought")] = "note",
+        kind: Annotated[Kind, Field(description="note | decision | handoff | fact | thought")] = "note",
         project: Annotated[str | None, Field(description="Defaults to the server's MEMINI_PROJECT.")] = None,
         tags: Annotated[list[str] | None, Field(description="Short lowercase labels.")] = None,
         supersedes: Annotated[str | None, Field(description="Id of the memory this replaces.")] = None,
         chain: Annotated[
             dict[str, Any] | None,
-            Field(description="Only for kind='thought': {number, total, next_needed, chain_id?, revises?, branch_from?}."),
+            Field(description="Only with kind='thought'. Keys: number, total, next_needed, optional "
+                              "chain_id (omit on the first thought), revises, branch_from."),
         ] = None,
     ) -> dict[str, Any]:
         """Store a memory. Call after a decision, a finished task, a handoff, or a learned fact."""
@@ -118,7 +122,7 @@ def create_app(settings: Settings | None = None) -> FastMCP:
     async def recall(
         query: Annotated[str, Field(description="Natural-language question or keywords.")],
         limit: Annotated[int, Field(ge=1, le=50, description="Max results.")] = 8,
-        kind: Annotated[str | None, Field(description="note | decision | handoff | fact | thought | session")] = None,
+        kind: Annotated[RecallKind | None, Field(description="Filter by kind; 'session' searches ingested transcripts.")] = None,
         project: Annotated[str | None, Field(description="Filter by project.")] = None,
         since: Annotated[str | None, Field(description="'7d', '24h', or an ISO date.")] = None,
         include_superseded: Annotated[bool, Field(description="Also return replaced memories.")] = False,
