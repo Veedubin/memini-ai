@@ -1,0 +1,37 @@
+site_name: memini-ai
+site_description: Local-first memory for AI coding agents. Three MCP tools, pgvector + full-text search.
+repo_url: https://github.com/Veedubin/memini-ai
+repo_name: Veedubin/memini-ai
+edit_uri: edit/main/docs/
+theme:
+  name: material
+  features: [navigation.tabs, navigation.sections, navigation.top, search.suggest, search.highlight, content.code.copy]
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      toggle: { icon: material/weather-night, name: Switch to dark mode }
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      toggle: { icon: material/weather-sunny, name: Switch to light mode }
+  font: { text: Inter, code: JetBrains Mono }
+plugins: [search]
+markdown_extensions:
+  - admonition
+  - tables
+  - toc: { permalink: true }
+  - pymdownx.highlight
+  - pymdownx.superfences
+  - pymdownx.tabbed: { alternate_style: true }
+  - pymdownx.snippets:
+      base_path: ["."]
+nav:
+  - Home: index.md
+  - Getting started: getting-started.md
+  - Tools: tools.md
+  - Configuration: configuration.md
+  - Clients and the skill: clients.md
+  - Session ingest: session-ingest.md
+  - Architecture: architecture.md
+  - Changelog: changelog.md
