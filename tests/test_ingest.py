@@ -74,3 +74,25 @@ async def test_ingest_since_skips_old_files(store, tmp_path):
     os.utime(f, (old, old))
     r = await ingest_claude_sessions(store, root=tmp_path / "projects", project="p", since="30d")
     assert r == {"sessions": 0, "chunks": 0, "duplicates": 0}
+
+
+async def test_ingest_skips_unreadable_file_and_continues(store, tmp_path):
+    import os
+    import stat
+
+    if os.geteuid() == 0:
+        pytest.skip("running as root; chmod 0 does not block reads")
+
+    root = tmp_path / "projects" / "-home-jcharles-Projects-p"
+    root.mkdir(parents=True)
+    bad = root / "a-bad.jsonl"
+    bad.write_text(FIX.read_text())
+    bad.chmod(0)
+    good = root / "b-good.jsonl"
+    good.write_text(FIX.read_text())
+    try:
+        r = await ingest_claude_sessions(store, root=tmp_path / "projects", project=None, since=None)
+    finally:
+        bad.chmod(stat.S_IRUSR | stat.S_IWUSR)
+    assert r["sessions"] == 1 and r["chunks"] >= 1
+    assert os.access(good, os.R_OK)

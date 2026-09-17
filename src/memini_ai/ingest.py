@@ -123,18 +123,22 @@ async def ingest_claude_sessions(
     for path in sorted(root.glob("*/*.jsonl")):
         if cutoff is not None and path.stat().st_mtime < cutoff:
             continue
-        turns = parse_claude_transcript(path)
-        if not turns:
+        try:
+            turns = parse_claude_transcript(path)
+            if not turns:
+                continue
+            counts["sessions"] += 1
+            proj = project or project_from_slug(path.parent.name)
+            session_id = path.stem
+            for i, chunk in enumerate(chunk_turns(turns)):
+                r = await store.remember(
+                    chunk, kind="session", project=proj, allow_session=True,
+                    source={"client": "claude-code", "session_id": session_id, "chunk": i,
+                            "ts": turns[0].ts, "ingested_at": datetime.now(UTC).isoformat()},
+                )
+                counts["duplicates" if r["duplicate"] else "chunks"] += 1
+        except (OSError, StoreError) as e:
+            log.warning("session_skipped", path=str(path), error=str(e))
             continue
-        counts["sessions"] += 1
-        proj = project or project_from_slug(path.parent.name)
-        session_id = path.stem
-        for i, chunk in enumerate(chunk_turns(turns)):
-            r = await store.remember(
-                chunk, kind="session", project=proj, allow_session=True,
-                source={"client": "claude-code", "session_id": session_id, "chunk": i,
-                        "ts": turns[0].ts, "ingested_at": datetime.now(UTC).isoformat()},
-            )
-            counts["duplicates" if r["duplicate"] else "chunks"] += 1
         log.info("session_ingested", path=str(path), project=proj)
     return counts
