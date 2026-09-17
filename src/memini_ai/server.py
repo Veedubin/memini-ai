@@ -22,9 +22,22 @@ Kind = Literal["note", "decision", "handoff", "fact", "thought"]
 RecallKind = Literal["note", "decision", "handoff", "fact", "thought", "session"]
 
 
+LEVELS = ("CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG")
+
+
 def configure_logging(level: str) -> None:
-    """Everything to stderr. stdout belongs to the MCP transport."""
-    logging.basicConfig(stream=sys.stderr, level=level.upper(), format="%(message)s")
+    """Everything to stderr. stdout belongs to the MCP transport.
+
+    An unusable level name is never fatal: a misconfigured MEMINI_LOG_LEVEL must not stop the
+    server from starting, so it falls back to INFO and says so.
+    """
+    name = level.upper()
+    unknown = name not in LEVELS
+    if unknown:
+        name = "INFO"
+    level_no: int = getattr(logging, name)
+    logging.basicConfig(stream=sys.stderr, level=level_no, format="%(message)s")
+    logging.getLogger().setLevel(level_no)  # basicConfig is a no-op once handlers exist
     structlog.configure(
         processors=[
             structlog.processors.add_log_level,
@@ -33,8 +46,10 @@ def configure_logging(level: str) -> None:
             structlog.processors.KeyValueRenderer(key_order=["event"]),
         ],
         logger_factory=structlog.PrintLoggerFactory(file=sys.stderr),
-        wrapper_class=structlog.make_filtering_bound_logger(logging.getLevelName(level.upper())),
+        wrapper_class=structlog.make_filtering_bound_logger(level_no),
     )
+    if unknown:
+        log.warning("invalid_log_level", value=level, using=name, valid=", ".join(LEVELS))
 
 
 class AppState:

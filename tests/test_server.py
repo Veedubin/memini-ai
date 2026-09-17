@@ -107,3 +107,14 @@ async def test_unexpected_exception_logs_traceback_and_reports_error(app, capsys
         # which under capsys is a capture buffer that gets closed when the test ends. Reset
         # to defaults so later tests' log calls don't write to that closed file.
         structlog.reset_defaults()
+
+
+async def test_configure_logging_falls_back_on_an_invalid_level(capsys):
+    import logging
+
+    try:
+        configure_logging("chatty")
+        assert logging.getLogger().level == logging.INFO
+        assert "chatty" in capsys.readouterr().err
+    finally:
+        structlog.reset_defaults()

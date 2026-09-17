@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -53,34 +54,47 @@ class Database:
             raise DatabaseError(f"cannot connect to {self._redacted()}: {e}") from e
 
     async def close(self) -> None:
-        if self._pool is not None:
-            await self._pool.close()
-            self._pool = None
+        """Close the pool, but never hang on it: a stuck query would block shutdown forever."""
+        if self._pool is None:
+            return
+        pool, self._pool = self._pool, None
+        try:
+            await asyncio.wait_for(pool.close(), 5)
+        except (TimeoutError, asyncpg.InterfaceError) as e:
+            log.warning("pool_close_forced", error=str(e))
+            pool.terminate()
 
     def _redacted(self) -> str:
         return re.sub(r"://([^:]+):[^@]*@", r"://\1:***@", self._dsn)
 
     async def migrate(self) -> list[int]:
-        """Apply pending numbered migrations in order, each in its own transaction."""
+        """Apply pending numbered migrations in order, under one advisory lock.
+
+        Two servers starting against a fresh database would otherwise race on CREATE TABLE and
+        on the migrations themselves; the loser blocks on the lock and then finds nothing to do.
+        """
         try:
             conn = await asyncpg.connect(self._dsn)
         except (OSError, asyncpg.PostgresError) as e:
             raise DatabaseError(f"cannot connect to {self._redacted()}: {e}") from e
         try:
-            await conn.execute(
-                "CREATE TABLE IF NOT EXISTS schema_migrations "
-                "(version int PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())"
-            )
-            applied = {r["version"] for r in await conn.fetch("SELECT version FROM schema_migrations")}
             done: list[int] = []
-            for version, name, sql in _load_migrations():
-                if version in applied:
-                    continue
-                async with conn.transaction():
+            async with conn.transaction():
+                await conn.execute("SELECT pg_advisory_xact_lock($1)", _MIGRATION_LOCK)
+                await conn.execute(
+                    "CREATE TABLE IF NOT EXISTS schema_migrations "
+                    "(version int PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())"
+                )
+                applied = {
+                    r["version"] for r in await conn.fetch("SELECT version FROM schema_migrations")
+                }
+                for version, name, sql in _load_migrations():
+                    if version in applied:
+                        continue
                     await conn.execute(sql)
                     await conn.execute("INSERT INTO schema_migrations (version) VALUES ($1)", version)
-                log.info("migration_applied", version=version, name=name)
-                done.append(version)
+                    log.info("migration_applied", version=version, name=name)
+                    done.append(version)
             return done
         except asyncpg.PostgresError as e:
             raise DatabaseError(f"migration failed: {e}") from e

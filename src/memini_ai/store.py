@@ -60,6 +60,11 @@ class Store:
         self._embed = embedder
         self._settings = settings
 
+    @property
+    def embedder(self) -> Embedder:
+        """The embedder this store uses, so callers need not build a second one."""
+        return self._embed
+
     async def recall(
         self,
         query: str,

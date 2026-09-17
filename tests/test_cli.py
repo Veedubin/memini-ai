@@ -49,3 +49,30 @@ def test_bad_args_exit_2(argv):
     with pytest.raises(SystemExit) as e:
         build_parser().parse_args(argv)
     assert e.value.code == 2
+
+
+def test_parser_has_warm():
+    assert build_parser().parse_args(["warm"]).cmd == "warm"
+
+
+def test_db_commands_name_the_compose_project(monkeypatch):
+    """Without -p the project name comes from the packaged compose.yaml's directory."""
+    from memini_ai import cli
+
+    seen = []
+    monkeypatch.setattr(cli, "_compose_cmd", lambda: ["podman", "compose"])
+    monkeypatch.setattr(cli.subprocess, "call", lambda argv: seen.append(argv) or 0)
+    for action in ("up", "down", "status"):
+        assert cli.cmd_db(action) == 0
+    assert [a[:4] for a in seen] == [["podman", "compose", "-p", "memini-ai"]] * 3
+    assert [a[-1] for a in seen] == ["-d", "down", "ps"]
+
+
+def test_warm_loads_the_embedder_and_reports_it(monkeypatch, capsys):
+    from memini_ai.cli import main
+
+    monkeypatch.setenv("MEMINI_MODEL", "hash")
+    monkeypatch.setenv("MEMINI_CONFIG_FILE", "/nonexistent")
+    assert main(["warm"]) == 0
+    out = capsys.readouterr().out
+    assert "hash" in out and "1024" in out
