@@ -15,6 +15,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
+        with: { enable-cache: true }
       - run: uv python install 3.13
       - run: uv sync --extra dev
       - run: uv run ruff check src tests
@@ -27,5 +28,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
-      - run: uv sync --extra dev
-      - run: uv run mkdocs build --strict
+        with: { enable-cache: true }
+      # mkdocs only reads docs/, so build it without the project env and its torch download.
+      - run: uvx --from mkdocs-material mkdocs build --strict

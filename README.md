@@ -5,9 +5,14 @@ Postgres + pgvector for storage, BGE-M3 embeddings on CPU, hybrid vector + full-
 
 ## Quick start
 
-    uv tool install memini-ai
+    uv tool install memini-ai --index https://download.pytorch.org/whl/cpu --index-strategy unsafe-best-match
     memini-ai db up            # pgvector/pgvector:pg18 on 127.0.0.1:5555
     memini-ai migrate          # optional; serve applies migrations on first connection
+    memini-ai warm             # one-time ~2.2 GB BGE-M3 download, then embeds one string
+
+The `--index` flags install CPU torch instead of the default CUDA build. Run `warm` before wiring
+up a client: the first `remember` or `recall` would otherwise download BGE-M3 (about 2.2 GB) inside
+a tool call and time out until it finishes.
 
 Then, from the project you want memory for:
 
@@ -25,3 +30,7 @@ Restart the client and call `orient`.
 - [Session ingest](docs/session-ingest.md)
 - [Architecture](docs/architecture.md)
 - [Changelog](docs/changelog.md)
+
+## License
+
+MIT. See [LICENSE](LICENSE).

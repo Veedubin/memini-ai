@@ -10,7 +10,7 @@ environment wins.
 | `MEMINI_DB_URL` | `postgresql://memini:memini@localhost:5555/memini` | asyncpg DSN |
 | `MEMINI_MODEL` | `BAAI/bge-m3` | embedding model; `hash` is a test fake |
 | `MEMINI_DEVICE` | `cpu` | `cpu` or `cuda` |
-| `MEMINI_PROJECT` | unset | default project label |
+| `MEMINI_PROJECT` | unset | default project for `remember` only; `recall` and `orient` search all projects unless `project` is given |
 | `MEMINI_CONFIG_FILE` | `~/.config/memini-ai/config.env` | settings file |
 | `MEMINI_LOG_LEVEL` | `INFO` | stderr log level |
 | `MEMINI_TIMEOUT_S` | `30` | per-tool timeout |

@@ -1,3 +1,4 @@
+import asyncio
 import json
 
 import pytest
@@ -16,6 +17,12 @@ async def app(test_dsn, db):
     await application.memini_state.close()  # type: ignore[attr-defined]
 
 
+def _schema(tool):
+    """FastMCP 4 renamed Tool.inputSchema to input_schema; accept either."""
+    schema = getattr(tool, "input_schema", None)
+    return schema if schema is not None else tool.inputSchema
+
+
 def _data(result):
     if getattr(result, "data", None) is not None:
         return result.data
@@ -27,11 +34,11 @@ async def test_tools_are_exactly_three_and_small(app):
         tools = await c.list_tools()
     names = sorted(t.name for t in tools)
     assert names == ["orient", "recall", "remember"]
-    schema = [{"name": t.name, "description": t.description, "inputSchema": t.inputSchema} for t in tools]
+    schema = [{"name": t.name, "description": t.description, "inputSchema": _schema(t)} for t in tools]
     assert len(json.dumps(schema)) // 4 < 700
-    remember = next(t for t in tools if t.name == "remember")
-    assert "description" in remember.inputSchema["properties"]["kind"]
-    assert '"decision"' in json.dumps(remember.inputSchema["properties"]["kind"])
+    remember = _schema(next(t for t in tools if t.name == "remember"))
+    assert "description" in remember["properties"]["kind"]
+    assert '"decision"' in json.dumps(remember["properties"]["kind"])
 
 
 async def test_round_trip(app):
@@ -65,8 +72,8 @@ async def test_thought_chain_over_mcp(app):
         assert [x["chain"]["number"] for x in r["results"]] == [1, 2]
 
 
-async def test_db_down_is_reported_not_raised(test_dsn, db):
-    settings = Settings(model="hash", db_url="postgresql://memini:memini@localhost:5555/does_not_exist", timeout_s=5)
+async def test_db_down_is_reported_not_raised(test_dsn, missing_db_dsn, db):
+    settings = Settings(model="hash", db_url=missing_db_dsn, timeout_s=5)
     app = create_app(settings)
     try:
         async with Client(app) as c:
@@ -118,3 +125,21 @@ async def test_configure_logging_falls_back_on_an_invalid_level(capsys):
         assert "chatty" in capsys.readouterr().err
     finally:
         structlog.reset_defaults()
+
+
+async def test_timeout_returns_only_an_error(test_dsn, db):
+    settings = Settings(model="hash", db_url=test_dsn, timeout_s=0.01)
+    app = create_app(settings)
+    try:
+        store = await app.memini_state.get_store()  # type: ignore[attr-defined]
+
+        async def slow(*args, **kwargs):
+            await asyncio.sleep(1)
+            return {"results": []}
+
+        store.recall = slow  # type: ignore[method-assign]
+        async with Client(app) as c:
+            r = _data(await c.call_tool("recall", {"query": "x"}))
+        assert r == {"error": "timeout after 0.01s"}
+    finally:
+        await app.memini_state.close()  # type: ignore[attr-defined]

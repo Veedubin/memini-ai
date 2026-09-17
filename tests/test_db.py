@@ -33,10 +33,10 @@ async def test_vector_roundtrip(db: Database):
     assert len(row["embedding"].to_list()) == 1024
 
 
-async def test_connect_failure_raises_database_error():
+async def test_connect_failure_raises_database_error(bad_password_dsn):
     from memini_ai.db import DatabaseError
 
-    db = Database("postgresql://memini:wrong@localhost:5555/memini_test")
+    db = Database(bad_password_dsn)
     try:
         await db.connect()
     except DatabaseError as e:

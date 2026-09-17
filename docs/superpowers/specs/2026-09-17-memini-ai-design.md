@@ -154,7 +154,7 @@ exists. Process environment wins over the file. Nothing reads the current workin
 | `MEMINI_DB_URL` | `postgresql://memini:memini@localhost:5555/memini` | asyncpg DSN |
 | `MEMINI_MODEL` | `BAAI/bge-m3` | embedding model, or `hash` for tests |
 | `MEMINI_DEVICE` | `cpu` | `cpu` or `cuda` |
-| `MEMINI_PROJECT` | unset | default project for `remember`/`recall`/`orient` |
+| `MEMINI_PROJECT` | unset | default project for `remember` only; `recall` and `orient` search all projects unless `project` is given |
 | `MEMINI_CONFIG_FILE` | `~/.config/memini-ai/config.env` | settings file |
 | `MEMINI_LOG_LEVEL` | `INFO` | stderr log level |
 | `MEMINI_TIMEOUT_S` | `30` | per-tool timeout |
@@ -171,8 +171,11 @@ Logs go to stderr only. The `serve` path never writes to stdout.
 - `migrate` applies pending migrations.
 - `init --client {claude-code,opencode,kimi-code,generic} [--scope user|project] [--project NAME]`
   writes the MCP entry into the client's config with a merge-only edit and a timestamped backup,
-  installs the `init-memini` skill where that client looks for skills, and appends the memory
-  protocol block to the client's instructions file if the marker is absent.
+  installs the `init-memini` skill where that client looks for skills (overwriting an existing
+  `SKILL.md` with the packaged one), and appends the memory protocol block to the client's
+  instructions file if the marker is absent. Paths are relative to the current directory.
+- `warm` loads the embedding model and embeds one string, so the download happens once in the
+  foreground rather than inside a client's first tool call.
 - `import FILE.jsonl [--project]` imports `{text, kind, project?, tags?, created_at?}` rows,
   for curating data out of the old database.
 - `ingest-sessions --client claude-code [--project] [--since 30d]` chunks transcripts into
@@ -185,8 +188,8 @@ Client adapter table (verified on this machine unless marked):
 |---|---|---|---|---|
 | claude-code | `~/.claude.json` (user) or `./.mcp.json` (project) | `mcpServers.<name>: {type: stdio, command, args, env}` | `~/.claude/skills/<name>/SKILL.md` | `CLAUDE.md` |
 | opencode | `~/.config/opencode/opencode.json` or `./.opencode/opencode.json` | `mcp.<name>: {type: local, command: [..], environment, enabled}` | `.opencode/skills/<name>/SKILL.md` (best effort) | `AGENTS.md` |
-| kimi-code | `./.kimi-code/mcp.json` | `mcpServers.<name>: {command, args, env, enabled}` | printed | `AGENTS.md` |
-| generic | prints a `mcpServers` JSON snippet and the protocol text | | | |
+| kimi-code | `./.kimi-code/mcp.json` (always; `--scope` is ignored) | `mcpServers.<name>: {command, args, env, enabled}` | not installed, not printed | `AGENTS.md` |
+| generic | prints a `mcpServers` JSON snippet | | not installed, not printed | `AGENTS.md`, written directly |
 
 Cursor, Codex, Pi, Hermes and Gemini CLI use `generic` until their formats are verified.
 

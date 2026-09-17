@@ -1,4 +1,5 @@
 import os
+import re
 
 import asyncpg
 import pytest
@@ -36,6 +37,19 @@ def reset_structlog():
 @pytest.fixture(scope="session")
 def test_dsn() -> str:
     return TEST_DSN
+
+
+@pytest.fixture(scope="session")
+def bad_password_dsn(test_dsn: str) -> str:
+    """The configured DSN with a wrong password: connecting must fail, wherever the DB lives."""
+    return re.sub(r"://([^:]+):[^@]*@", r"://\1:wrong-password@", test_dsn)
+
+
+@pytest.fixture(scope="session")
+def missing_db_dsn(test_dsn: str) -> str:
+    """The configured DSN pointing at a database that does not exist."""
+    base, _, _ = test_dsn.rpartition("/")
+    return f"{base}/memini_does_not_exist"
 
 
 @pytest.fixture

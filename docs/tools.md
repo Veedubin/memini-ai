@@ -25,6 +25,13 @@ fusion. Filters are SQL predicates. `since` accepts `7d`, `24h`, or an ISO date.
 memories are hidden unless asked for. `chain_id` returns a thought chain in order and ignores `query`.
 If the embedding model is unavailable the response carries `degraded: "text-only"`.
 
+Like `orient`, `recall` searches every project when `project` is omitted; it does not fall back to
+the server's `MEMINI_PROJECT`, which is a default for `remember` only. Pass `project` to scope it.
+
+`score` is relative, not absolute: the vector arm has no relevance floor, so the best hit of a
+search always scores `1.0` even when nothing in the store is really about the query. Read the text
+of the results rather than trusting the score alone.
+
 Only results that came back from a search increment `retrieval_count`; reading a chain with
 `chain_id` returns it in order without touching `retrieval_count`.
 
