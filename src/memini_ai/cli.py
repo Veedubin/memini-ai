@@ -165,7 +165,9 @@ def cmd_serve(settings: Settings) -> int:
     from memini_ai.server import create_app
 
     app = create_app(settings)
-    app.run(transport="stdio")
+    # The banner triggers a PyPI version check on every launch (network call on stderr, but
+    # still unwanted on every process start); show_banner=False skips both.
+    app.run(transport="stdio", show_banner=False)
     return 0
 
 
