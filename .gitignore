@@ -8,6 +8,8 @@ dist/
 site/
 *.egg-info/
 .env
+.mcp.json
+.mcp.json.bak-*
 *.jsonl
 !tests/fixtures/*.jsonl
 *.dump

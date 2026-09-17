@@ -79,8 +79,11 @@ ingest-sessions --client claude-code`, `memini-ai import <file.jsonl>`, `memini-
 - **`clients.py`**: `memini-ai init --client <claude-code|opencode|kimi-code|generic>` does a
   merge-only edit of the client's MCP config (with a timestamped backup), installs the
   `init-memini` skill where applicable, and appends a memory-protocol block to the project's
-  instructions file between `<!-- memini-ai:start -->`/`<!-- memini-ai:end -->` markers — the block
-  is appended once and never overwritten on re-run, unlike the skill file.
+  instructions file wrapped in a pair of HTML-comment marker lines (see `clients.START`/`END`) —
+  the block is appended once and never overwritten on re-run, unlike the skill file.
+  `ensure_protocol()` detects "already added" with a plain substring search for the start marker,
+  so never let that exact marker text appear elsewhere in an instructions file (e.g. in prose
+  describing it) — it reads as a false positive and the block silently never gets appended.
 - **`ingest.py`**: turns Claude Code session transcripts (`~/.claude/projects/<slug>/*.jsonl`, not
   nested subagent transcripts) into `kind="session"` memories, chunked to ~1500 chars, dropping
   thinking/tool-calls/tool-results and `isMeta` lines. Idempotent on re-run. Also handles curated
@@ -98,3 +101,14 @@ See `docs/architecture.md`, `docs/tools.md`, `docs/configuration.md`, `docs/clie
   subcommand functions, not imported at module top level, so `memini-ai --version` and `memini-ai db
   up` stay fast and don't require the DB or model dependencies to be importable.
 - All SQL lives in `db.py` (pool/migrations) or `store.py` (queries) — nowhere else.
+
+<!-- memini-ai:start -->
+## Memory (memini-ai)
+- Start every session with `orient`. Read it before planning.
+- Before re-deriving anything about this project, `recall` it first.
+- After a decision, a finished task, or a handoff, call `remember` with the matching `kind`.
+  One paragraph, stating what and why. Include file paths and commit ids when relevant.
+- When a fact changes, `remember` the new one with `supersedes=<old id>`.
+- For multi-step reasoning you want to survive the session, use `kind="thought"` with `chain`.
+- Never store secrets, tokens, or full file contents.
+<!-- memini-ai:end -->
