@@ -6,6 +6,7 @@ import hashlib
 import json
 import re
 import uuid
+from datetime import datetime
 from typing import Any
 
 import asyncpg
@@ -15,6 +16,7 @@ from pydantic import BaseModel, Field
 from memini_ai.config import Settings
 from memini_ai.db import Database
 from memini_ai.embed import Embedder, EmbedError
+from memini_ai.search import build_filters, parse_since, rrf
 
 log = structlog.get_logger(__name__)
 
@@ -47,10 +49,130 @@ def _uuid(value: str, field: str) -> uuid.UUID:
 
 
 class Store:
+    ARM_LIMIT = 20
+
     def __init__(self, db: Database, embedder: Embedder, settings: Settings) -> None:
         self._db = db
         self._embed = embedder
         self._settings = settings
+
+    async def recall(
+        self,
+        query: str,
+        limit: int = 8,
+        kind: str | None = None,
+        project: str | None = None,
+        since: str | None = None,
+        include_superseded: bool = False,
+        chain_id: str | None = None,
+    ) -> dict[str, Any]:
+        if limit < 1 or limit > 50:
+            raise StoreError("limit must be between 1 and 50")
+        if kind is not None and kind not in KINDS:
+            raise StoreError(f"kind must be one of {', '.join(KINDS)}")
+        if chain_id is not None:
+            return await self._recall_chain(chain_id)
+        if not query or not query.strip():
+            raise StoreError("query is empty")
+        since_dt: datetime | None = None
+        if since is not None:
+            try:
+                since_dt = parse_since(since)
+            except ValueError as e:
+                raise StoreError(str(e)) from e
+
+        where, params = build_filters(kind, project, since_dt, include_superseded, first_param=2)
+        text_ids = [
+            str(r["id"])
+            for r in await self._db.fetch(
+                "SELECT id FROM memories WHERE tsv @@ websearch_to_tsquery('english', $1)" + where
+                + " ORDER BY ts_rank_cd(tsv, websearch_to_tsquery('english', $1)) DESC LIMIT "
+                + str(self.ARM_LIMIT),
+                query, *params,
+            )
+        ]
+        degraded: str | None = None
+        vector_ids: list[str] = []
+        try:
+            qvec = (await self._embed.embed([query]))[0]
+            vector_ids = [
+                str(r["id"])
+                for r in await self._db.fetch(
+                    "SELECT id FROM memories WHERE embedding IS NOT NULL" + where
+                    + " ORDER BY embedding <=> $1 LIMIT " + str(self.ARM_LIMIT),
+                    qvec, *params,
+                )
+            ]
+        except EmbedError as e:
+            log.warning("recall_text_only", error=str(e))
+            degraded = "text-only"
+
+        fused = rrf([vector_ids, text_ids])[:limit]
+        if not fused:
+            out: dict[str, Any] = {"results": []}
+            if degraded:
+                out["degraded"] = degraded
+            return out
+        ids = [uuid.UUID(i) for i, _ in fused]
+        top = fused[0][1]
+        rows = await self._db.fetch(
+            """
+            SELECT id, text, kind, project, tags, created_at, superseded_by, chain_id, thought_number
+            FROM memories WHERE id = ANY($1::uuid[])
+            """,
+            ids,
+        )
+        by_id = {str(r["id"]): r for r in rows}
+        results = []
+        for mid, score in fused:
+            r = by_id[mid]
+            results.append(self._row_out(r, round(score / top, 4)))
+        await self._db.execute(
+            "UPDATE memories SET retrieval_count = retrieval_count + 1 WHERE id = ANY($1::uuid[])", ids
+        )
+        out = {"results": results}
+        if degraded:
+            out["degraded"] = degraded
+        return out
+
+    async def _recall_chain(self, chain_id: str) -> dict[str, Any]:
+        cid = _uuid(chain_id, "chain_id")
+        chain = await self._db.fetchrow("SELECT id, status, project FROM chains WHERE id=$1", cid)
+        if chain is None:
+            raise StoreError(f"chain_id not found: {chain_id}")
+        rows = await self._db.fetch(
+            """
+            SELECT id, text, kind, project, tags, created_at, superseded_by, chain_id,
+                   thought_number, thought_total, next_needed, revises, branch_from
+            FROM memories WHERE chain_id=$1 ORDER BY thought_number, created_at
+            """,
+            cid,
+        )
+        results = [self._row_out(r, 1.0) for r in rows]
+        return {"results": results, "chain": {"id": chain_id, "status": chain["status"], "project": chain["project"]}}
+
+    @staticmethod
+    def _row_out(r: Any, score: float) -> dict[str, Any]:
+        out: dict[str, Any] = {
+            "id": str(r["id"]),
+            "text": r["text"],
+            "kind": r["kind"],
+            "project": r["project"],
+            "tags": list(r["tags"]),
+            "created_at": r["created_at"].isoformat(),
+            "score": score,
+        }
+        if r["superseded_by"] is not None:
+            out["superseded_by"] = str(r["superseded_by"])
+        if r["chain_id"] is not None:
+            out["chain"] = {
+                "id": str(r["chain_id"]),
+                "number": r["thought_number"],
+                **({"total": r["thought_total"], "next_needed": r["next_needed"],
+                    "revises": r["revises"], "branch_from": r["branch_from"]}
+                   if "thought_total" in r.keys() else {}),  # noqa: SIM118 -- asyncpg.Record iterates values, not keys
+            }
+        return out
 
     async def remember(
         self,
