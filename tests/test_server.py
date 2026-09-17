@@ -1,10 +1,11 @@
 import json
 
 import pytest
+import structlog
 from fastmcp import Client
 
 from memini_ai.config import Settings
-from memini_ai.server import create_app
+from memini_ai.server import configure_logging, create_app
 
 
 @pytest.fixture
@@ -64,7 +65,7 @@ async def test_thought_chain_over_mcp(app):
         assert [x["chain"]["number"] for x in r["results"]] == [1, 2]
 
 
-async def test_db_down_is_reported_not_raised(test_dsn):
+async def test_db_down_is_reported_not_raised(test_dsn, db):
     settings = Settings(model="hash", db_url="postgresql://memini:memini@localhost:5555/does_not_exist", timeout_s=5)
     app = create_app(settings)
     try:
@@ -73,5 +74,36 @@ async def test_db_down_is_reported_not_raised(test_dsn):
             assert o["status"]["db"] == "error"
             r = _data(await c.call_tool("recall", {"query": "x"}))
             assert set(r) == {"error"}
+
+            # The failed attempt above must not be cached: pointing the same app's state at
+            # a working DSN and retrying should succeed, proving get_store() retries rather
+            # than remembering the earlier failure.
+            app.memini_state.settings = Settings(model="hash", db_url=test_dsn, timeout_s=5)  # type: ignore[attr-defined]
+            o2 = _data(await c.call_tool("orient", {}))
+            assert o2["status"]["db"] == "ok"
     finally:
         await app.memini_state.close()  # type: ignore[attr-defined]
+
+
+async def test_unexpected_exception_logs_traceback_and_reports_error(app, capsys):
+    configure_logging("INFO")
+    try:
+        state = app.memini_state  # type: ignore[attr-defined]
+        store = await state.get_store()
+
+        async def boom(*args, **kwargs):
+            raise RuntimeError("boom")
+
+        store.recall = boom  # type: ignore[method-assign]
+
+        async with Client(app) as c:
+            r = _data(await c.call_tool("recall", {"query": "x"}))
+        assert set(r) == {"error"}
+
+        captured = capsys.readouterr()
+        assert "Traceback" in captured.err
+    finally:
+        # configure_logging binds structlog's PrintLoggerFactory to the current sys.stderr,
+        # which under capsys is a capture buffer that gets closed when the test ends. Reset
+        # to defaults so later tests' log calls don't write to that closed file.
+        structlog.reset_defaults()

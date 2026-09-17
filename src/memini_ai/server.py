@@ -29,6 +29,7 @@ def configure_logging(level: str) -> None:
         processors=[
             structlog.processors.add_log_level,
             structlog.processors.TimeStamper(fmt="iso"),
+            structlog.processors.format_exc_info,
             structlog.processors.KeyValueRenderer(key_order=["event"]),
         ],
         logger_factory=structlog.PrintLoggerFactory(file=sys.stderr),
@@ -44,23 +45,25 @@ class AppState:
         self._db: Database | None = None
         self._store: Store | None = None
         self._lock = asyncio.Lock()
-        self.last_error: str | None = None
 
     async def get_store(self) -> Store:
         if self._store is not None:
             return self._store
         async with self._lock:
             if self._store is None:
+                # Build the embedder first: it is cheap and touches no network, so if it
+                # fails we never open a pool that would otherwise be orphaned. `_db` and
+                # `_store` are only assigned together, once `connect()` has succeeded, so a
+                # failed attempt here leaves both `None` for the next call to retry cleanly.
+                embedder = make_embedder(self.settings)
                 db = Database(self.settings.db_url)
                 try:
                     await db.connect()
                 except DatabaseError as e:
-                    self.last_error = str(e)
                     log.error("db_connect_failed", error=str(e))
                     raise
                 self._db = db
-                self._store = Store(db, make_embedder(self.settings), self.settings)
-                self.last_error = None
+                self._store = Store(db, embedder, self.settings)
                 log.info("store_ready")
         return self._store
 
@@ -93,7 +96,7 @@ def create_app(settings: Settings | None = None) -> FastMCP:
     @app.tool
     async def remember(
         text: Annotated[str, Field(description="One paragraph: what and why. Include paths and commit ids.")],
-        kind: Annotated[Kind, Field(description="note | decision | handoff | fact | thought")] = "note",
+        kind: Annotated[Kind, Field(description="Category of memory.")] = "note",
         project: Annotated[str | None, Field(description="Defaults to the server's MEMINI_PROJECT.")] = None,
         tags: Annotated[list[str] | None, Field(description="Short lowercase labels.")] = None,
         supersedes: Annotated[str | None, Field(description="Id of the memory this replaces.")] = None,
