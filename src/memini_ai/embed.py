@@ -25,6 +25,8 @@ class EmbedError(Exception):
 class Embedder(Protocol):
     name: str
     dim: int
+    last_error: str | None
+    """Last model load/encode failure, or None. Surfaced by Store.status()."""
 
     async def embed(self, texts: list[str]) -> list[list[float]]: ...
 
@@ -34,6 +36,7 @@ class HashEmbedder:
 
     name = "hash"
     dim = DIM
+    last_error: str | None = None  # never fails
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
         return [self._one(t) for t in texts]
@@ -55,19 +58,39 @@ class BgeM3Embedder:
         self._device = device
         self._model: Any = None
         self._lock = asyncio.Lock()
+        self._task: asyncio.Task[Any] | None = None
+        self.last_error: str | None = None
 
     async def _load(self) -> Any:
+        """Load once, even if callers time out.
+
+        The load runs in a task owned by the instance and every caller awaits it through
+        `asyncio.shield`, so a caller that is cancelled (a tool timeout, say) abandons its own
+        await while the load keeps going; the next caller joins the same task instead of
+        starting a second multi-second model load. The task is only cleared when it *failed*,
+        which is what makes the next call retry.
+        """
         if self._model is not None:
             return self._model
         async with self._lock:
-            if self._model is None:
+            if self._model is not None:
+                return self._model
+            if self._task is None:
                 log.info("model_loading", model=self.name, device=self._device)
-                try:
-                    self._model = await asyncio.to_thread(self._load_sync)
-                except Exception as e:  # sentence-transformers raises many types
-                    raise EmbedError(f"cannot load {self.name}: {e}") from e
-                log.info("model_loaded", model=self.name)
-        return self._model
+                self._task = asyncio.create_task(asyncio.to_thread(self._load_sync))
+            task = self._task
+        try:
+            model = await asyncio.shield(task)
+        except Exception as e:  # sentence-transformers raises many types
+            # Only the task's own failure lands here; a cancelled *caller* raises
+            # CancelledError (a BaseException), which leaves self._task in place.
+            self._task = None
+            self.last_error = f"cannot load {self.name}: {e}"
+            raise EmbedError(self.last_error) from e
+        self._model = model
+        self.last_error = None
+        log.info("model_loaded", model=self.name)
+        return model
 
     def _load_sync(self) -> Any:
         from sentence_transformers import SentenceTransformer
@@ -81,7 +104,9 @@ class BgeM3Embedder:
                 model.encode, texts, normalize_embeddings=True, convert_to_numpy=True
             )
         except Exception as e:
-            raise EmbedError(f"embedding failed: {e}") from e
+            self.last_error = f"embedding failed: {e}"
+            raise EmbedError(self.last_error) from e
+        self.last_error = None
         return [[float(x) for x in row] for row in arr]
 
 
