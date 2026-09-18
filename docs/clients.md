@@ -21,7 +21,9 @@ to `AGENTS.md` in the current directory — `generic` prints the MCP snippet *an
 Where the skill is installed, an existing `init-memini/SKILL.md` is overwritten with the packaged
 version, so upgrading memini-ai and re-running `init` refreshes it. The config edit and the
 protocol block are never overwritten: the config is merged key by key with a timestamped `.bak-`
-copy alongside it, and the protocol block is appended only if its start marker is absent.
+copy alongside it, and the protocol block is appended only if the start marker isn't already
+present on a line by itself — mentioning the marker in prose elsewhere in the file (like this
+paragraph does) doesn't count as already-installed.
 
 Cursor, Codex, Pi, Hermes, and Gemini CLI: use `generic` and paste the snippet into that client's
 MCP config.

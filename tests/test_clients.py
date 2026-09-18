@@ -69,6 +69,13 @@ def test_ensure_protocol_is_idempotent(tmp_path):
     assert text.startswith("# My project\n")
 
 
+def test_ensure_protocol_ignores_marker_mentioned_in_prose(tmp_path):
+    p = tmp_path / "CLAUDE.md"
+    p.write_text("See the `<!-- memini-ai:start -->` marker in the docs.\n")
+    assert ensure_protocol(p) is True
+    assert PROTOCOL_BLOCK in p.read_text()
+
+
 def test_server_entry_shapes():
     cmd = ["memini-ai", "serve"]
     env = {"MEMINI_PROJECT": "p"}

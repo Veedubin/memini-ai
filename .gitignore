@@ -8,8 +8,11 @@ dist/
 site/
 *.egg-info/
 .env
-.mcp.json
-.mcp.json.bak-*
+/.mcp.json
+/.mcp.json.bak-*
+/.opencode/
+/.kimi-code/
+/.claude/settings.local.json
 *.jsonl
 !tests/fixtures/*.jsonl
 *.dump

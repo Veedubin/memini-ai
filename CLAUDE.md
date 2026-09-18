@@ -81,9 +81,9 @@ ingest-sessions --client claude-code`, `memini-ai import <file.jsonl>`, `memini-
   `init-memini` skill where applicable, and appends a memory-protocol block to the project's
   instructions file wrapped in a pair of HTML-comment marker lines (see `clients.START`/`END`) —
   the block is appended once and never overwritten on re-run, unlike the skill file.
-  `ensure_protocol()` detects "already added" with a plain substring search for the start marker,
-  so never let that exact marker text appear elsewhere in an instructions file (e.g. in prose
-  describing it) — it reads as a false positive and the block silently never gets appended.
+  `ensure_protocol()` detects "already added" by requiring the start marker on a line by itself,
+  so mentioning that exact text in prose elsewhere in the file (e.g. describing the marker) does
+  not false-positive.
 - **`ingest.py`**: turns Claude Code session transcripts (`~/.claude/projects/<slug>/*.jsonl`, not
   nested subagent transcripts) into `kind="session"` memories, chunked to ~1500 chars, dropping
   thinking/tool-calls/tool-results and `isMeta` lines. Idempotent on re-run. Also handles curated

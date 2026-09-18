@@ -54,7 +54,7 @@ def merge_json(path: Path, key_path: list[str], value: dict[str, Any]) -> Path |
             raise ValueError(f"{path}: {key!r} is not an object")
     backup: Path | None = None
     if existed:
-        backup = path.with_name(f"{path.name}.bak-{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}")
+        backup = path.with_name(f"{path.name}.bak-{datetime.now(UTC).strftime('%Y%m%dT%H%M%S%fZ')}")
         shutil.copy2(path, backup)
     node[key_path[-1]] = value
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -65,7 +65,7 @@ def merge_json(path: Path, key_path: list[str], value: dict[str, Any]) -> Path |
 def ensure_protocol(path: Path) -> bool:
     """Append the protocol block once. Returns True if the file changed."""
     existing = path.read_text(encoding="utf-8") if path.exists() else ""
-    if START in existing:
+    if any(line.strip() == START for line in existing.splitlines()):
         return False
     block = f"\n{START}\n{PROTOCOL_BLOCK}{END}\n"
     path.parent.mkdir(parents=True, exist_ok=True)
