@@ -1,6 +1,6 @@
 [project]
 name = "memini-ai"
-version = "0.1.0"
+version = "0.1.1"
 description = "Local-first memory server for AI coding agents. Three MCP tools, pgvector + full-text search."
 readme = "README.md"
 requires-python = ">=3.12"
