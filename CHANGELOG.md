@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.2
+
+Fix broken doc links on the PyPI project page: `pyproject.toml` had no `[project.urls]`, and the
+README's doc links were repo-relative paths, which resolve against `pypi.org` instead of GitHub
+and 404 there. Add Homepage/Repository/Documentation/Changelog URLs and point the README links at
+GitHub directly.
+
 ## 0.1.1
 
 Fix `ensure_protocol()` falsely detecting the memory protocol block as already installed when

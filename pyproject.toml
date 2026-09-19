@@ -1,6 +1,6 @@
 [project]
 name = "memini-ai"
-version = "0.1.1"
+version = "0.1.2"
 description = "Local-first memory server for AI coding agents. Three MCP tools, pgvector + full-text search."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -17,6 +17,12 @@ dependencies = [
   "torch>=2.2",
   "structlog>=24.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/Veedubin/memini-ai"
+Repository = "https://github.com/Veedubin/memini-ai"
+Documentation = "https://github.com/Veedubin/memini-ai/tree/main/docs"
+Changelog = "https://github.com/Veedubin/memini-ai/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "pytest-asyncio>=0.24", "ruff>=0.6", "mypy>=1.10", "mkdocs<2", "mkdocs-material>=9.5"]

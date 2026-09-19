@@ -23,14 +23,14 @@ Restart the client and call `orient`.
 
 ## Docs
 
-- [Getting started](docs/getting-started.md)
-- [The three tools](docs/tools.md)
-- [Configuration](docs/configuration.md)
-- [Clients and the init-memini skill](docs/clients.md)
-- [Session ingest](docs/session-ingest.md)
-- [Architecture](docs/architecture.md)
-- [Changelog](docs/changelog.md)
+- [Getting started](https://github.com/Veedubin/memini-ai/blob/main/docs/getting-started.md)
+- [The three tools](https://github.com/Veedubin/memini-ai/blob/main/docs/tools.md)
+- [Configuration](https://github.com/Veedubin/memini-ai/blob/main/docs/configuration.md)
+- [Clients and the init-memini skill](https://github.com/Veedubin/memini-ai/blob/main/docs/clients.md)
+- [Session ingest](https://github.com/Veedubin/memini-ai/blob/main/docs/session-ingest.md)
+- [Architecture](https://github.com/Veedubin/memini-ai/blob/main/docs/architecture.md)
+- [Changelog](https://github.com/Veedubin/memini-ai/blob/main/CHANGELOG.md)
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT. See [LICENSE](https://github.com/Veedubin/memini-ai/blob/main/LICENSE).
